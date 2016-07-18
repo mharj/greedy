@@ -1,0 +1,6 @@
+moc_*
+*.o
+greedy.x86_64
+greedy.i?86
+greedy.pro.user
+Makefile
