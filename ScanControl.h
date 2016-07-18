@@ -121,7 +121,8 @@ public slots:
                 // Scan stats
                 QString stats = QString("{\"elapsed\":%1,\"fps\":%2}").arg(scan_time.elapsed()).arg(((total_files+total_dirs)/((float)scan_time.elapsed()/1000)), 0, 'f', 0);
                 // output
-                qDebug() << QString("{\"uids\":[%1],\"gids\":[%2],\"year\":{%3},\"stats\":%4%5}").arg(uidList.join(",")).arg(gidList.join(",")).arg(yearDataList.join(",")).arg(stats).arg(error);
+                QTextStream out(stdout);
+                out<< QString("{\"uids\":[%1],\"gids\":[%2],\"year\":{%3},\"stats\":%4%5}").arg(uidList.join(",")).arg(gidList.join(",")).arg(yearDataList.join(",")).arg(stats).arg(error)<< endl;
 				// release threads
 				for ( int i=0;i<max;i++) {
 					disconnect(thread[i],SIGNAL(finished()),this,SLOT(finishedThread()));
