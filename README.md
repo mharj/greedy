@@ -2,6 +2,9 @@
 metadata scanner
 
 Collects per uid/gid metadata (files,dirs,total size) and yearly data age (size) list in json format
+```bash
+$ ./greedy.x86_64 /bin
+```
 ```json
 {
   "uids": [
