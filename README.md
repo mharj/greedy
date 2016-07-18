@@ -1,7 +1,7 @@
 # greedy
 multithread metadata scanner
 
-Collects per uid/gid metadata (files,dirs,total size) and yearly modified data age (size) list in json format
+Collects per uid/gid metadata (files,dirs,total size,latest atime/ctime/mtime) and yearly modified data age (size) list in json format
 
 Build:
 ```bash
