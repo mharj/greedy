@@ -198,9 +198,9 @@ public slots:
     	}
         // year age data collection
         QHashIterator<int, quint64> yfs(cthread->yearFileSizes);
-        while (yfs.hasNext()) {
+        while ( yfs.hasNext() ) {
             yfs.next();
-            if (yearFileSizes.key(yfs.key() ) ) {
+            if ( yearFileSizes.contains(yfs.key() ) ) {
                 yearFileSizes[yfs.key()] += yfs.value();
             } else {
                 yearFileSizes.insert(yfs.key(),yfs.value());

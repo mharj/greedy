@@ -112,7 +112,7 @@ public:
 
                 // calculate years (not exact)
                 int year = floor((double)(now-st.st_mtime)/(seconds_in_year));
-                if ( ! yearFileSizes.key(year) ) {
+                if ( ! yearFileSizes.contains(year) ) {
                     yearFileSizes.insert(year,st.st_size);
                 } else {
                     yearFileSizes[year] += st.st_size;
