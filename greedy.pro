@@ -20,4 +20,6 @@ count(GIT_HEAD, 1) {
 
 SOURCES += main.cpp
 HEADERS += ScanDir.h ScanControl.h
-CONFIG  += qt warn_on release console
+CONFIG += qt warn_on release console
+CONFIG += c++11
+QMAKE_CXXFLAGS += -std=c++11

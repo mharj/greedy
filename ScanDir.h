@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QFileInfo>
+#include <QDir>
 
 #include <dirent.h>
 #include <math.h>
@@ -20,18 +21,14 @@
 #include <unistd.h>
 #include <sys/vfs.h>
 
-struct gstat {
-	qint64 count;
-	qint64 size;
-};
-
 struct fileStatistics {
-	qint64 file_count;
-	qint64 dir_count;
-	qint64 size;
+	quint64 file_count;
+	quint64 dir_count;
+	quint64 size;
 	time_t last_modify;
 	time_t last_create;
 	time_t last_access;
+	fileStatistics():file_count(0),dir_count(0),size(0),last_modify(0),last_create(0),last_access(0){}
 };
 
 class ScanDir : public QThread {
@@ -39,15 +36,12 @@ class ScanDir : public QThread {
 
 public:
 	bool data_read;
-	QHash<long int, fileStatistics> userFileStatistics;
-	QHash<long int, fileStatistics> groupFileStatistics;
-	QHash<int,quint64> yearFileSizes;
+	QHash<__uid_t, fileStatistics> userFileStatistics;
+	QHash<__gid_t, fileStatistics> groupFileStatistics;
+	QHash<uint,quint64> yearFileSizes;
 	bool permission;
 
 	ScanDir() {
-		permission = true;
-		files = 0;
-		dirs = 0;
 		data_read = true;
 		// current time
 		now = time(0);
@@ -56,56 +50,38 @@ public:
 		groupFileStatistics.reserve(5000); // init size for 5k gids
 	}
 
-	void setDir(QString dir) {
-		this->directory=dir;
-		this->directory.remove(QRegExp("/$"));
+
+	void setDir(QDir dir) {
+		this->directory = dir;
 	}
 
 	void run() {
-		// clear init values
-		data_read = false;
-		directory_list.clear();
-		permission = true;
-		files=0;
-		dirs=0;
-		// clear year data
-		yearFileSizes.clear();
-		userFileStatistics.clear();
-		groupFileStatistics.clear();
-		if ( access (directory.toLatin1().data(), R_OK) != 0 ) {
+		reset(); // values
+		QByteArray cdir = directory.absolutePath().toLatin1();
+		if ( access (cdir.constData(), R_OK) != 0 ) {
 			permission = false;
 			return;
 		}
 		struct dirent *dp;
 		// get directory data
-		DIR *dir = opendir(directory.toLatin1().data());
+		DIR *dir = opendir(cdir.constData());
 		while ((dp=readdir(dir)) != NULL) {
 			// common filename skip
 			if ( strcmp(dp->d_name,"..") == 0 || strcmp(dp->d_name,".") == 0 || strcmp(dp->d_name,".snapshot") == 0 ) 
 				continue;
-			char rfile[(directory.length()+strlen(dp->d_name)+2)]; // full path to file
-			sprintf(rfile,"%s/%s",directory.toLatin1().data(),dp->d_name);
+			char rfile[(strlen(cdir.constData())+strlen(dp->d_name)+2)]; // full path to file
+			sprintf(rfile,"%s/%s",cdir.constData(),dp->d_name);
 			struct stat st;
-			if ( lstat(rfile, &st) == 0 ) {			
+			if ( lstat(rfile, &st) == 0 ) {
 				long int uid=st.st_uid;
 				long int gid=st.st_gid;
 
-				if ( ! userFileStatistics.contains(uid) ) { // init uid values if not exists yet
-					userFileStatistics[uid].file_count=0;
-					userFileStatistics[uid].dir_count=0;
-					userFileStatistics[uid].size=0;
-					userFileStatistics[uid].last_modify=0;
-					userFileStatistics[uid].last_create=0;
-					userFileStatistics[uid].last_access=0;
+				if ( ! userFileStatistics.contains(st.st_uid) ) { // init uid values if not exists yet
+					userFileStatistics[st.st_uid] = {};
 				}
 
 				if ( ! groupFileStatistics.contains(gid) ) { // init gid values if not exists yet
-					groupFileStatistics[gid].file_count=0;
-					groupFileStatistics[gid].dir_count=0;
-					groupFileStatistics[gid].size=0;
-					groupFileStatistics[gid].last_modify=0;
-					groupFileStatistics[gid].last_create=0;
-					groupFileStatistics[gid].last_access=0;
+					groupFileStatistics[gid] = {};
 				}
 
 				// use structure pointers
@@ -143,12 +119,12 @@ public:
 				groupStats.size += st.st_size;
 				
 				if ( S_ISDIR(st.st_mode) ) {
-					directory_list	<< QString(rfile);
-					dirs++;					
+					directory_list	<< QDir(rfile);
+					dirs++;
 					++ownerStats.dir_count;
 					++groupStats.dir_count;
 				} else {
-					files++;				
+					files++;
 					++ownerStats.file_count;
 					++groupStats.file_count;
 				}
@@ -162,7 +138,7 @@ public:
 	int getDirs(void) {
 		return(dirs);
 	}
-	QStringList getNewDirs(void) {
+	QList<QDir> getNewDirs(void) {
 		return(directory_list);
 	}
 private:
@@ -170,8 +146,18 @@ private:
 	quint64 files;
 	quint64 dirs;
 	time_t now;
-	QString directory;
-	QStringList directory_list;
+	QDir directory;
+	QList<QDir> directory_list;
+	void reset() { // to initial values
+		data_read = false;
+		directory_list.clear();
+		permission = true;
+		files = 0;
+		dirs = 0;
+		yearFileSizes.clear();
+		userFileStatistics.clear();
+		groupFileStatistics.clear();
+	}
 };
 
 #endif // SCANDIR_H
