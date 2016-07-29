@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "ScanDir.h"
+#include "filestats.h"
 
 class ScanControl : public QObject {
 	Q_OBJECT
@@ -18,7 +19,8 @@ public:
 		scan_time.start();
 		r_exit=0;
 		this->real_path = real_path;
-		all.dir_count = 1; // as we have root path already
+		all = new FileStats();
+		all->setDirs(1);
 		permission = true;
 		if ( access(base.toLatin1().data(), R_OK) != 0 ) {
 			return;
@@ -42,9 +44,9 @@ private:
 	int max;
 	QList<QDir> dirs;
 	QString base;
-	fileStatistics all;
-	QHash<__uid_t, fileStatistics> userFileStatistics;
-	QHash<__gid_t, fileStatistics> groupFileStatistics;
+	FileStats* all;
+	QHash<__uid_t, FileStats*> userFileStatistics;
+	QHash<__gid_t, FileStats*> groupFileStatistics;
 	QMap<int,quint64> yearFileSizes;
 	bool permission;
 	QMutex mutex;
@@ -76,31 +78,31 @@ public slots:
 			if ( ! running ) { // not threads or data left
 				// uid data
 				QStringList uidList;
-				QHashIterator<__uid_t, fileStatistics> ue(userFileStatistics);
+				QHashIterator<__uid_t, FileStats*> ue(userFileStatistics);
 				while (ue.hasNext()) {
 					ue.next();
 					uidList << QString("{\"uid\":%1,\"files\":%2,\"dirs\":%3,\"size\":%4,\"mtime\":%5,\"ctime\":%6,\"atime\":%7}")
 						.arg(ue.key())
-						.arg(ue.value().file_count)
-						.arg(ue.value().dir_count)
-						.arg(ue.value().size)
-						.arg(ue.value().last_modify)
-						.arg(ue.value().last_create)
-						.arg(ue.value().last_access);
+						.arg(ue.value()->getFiles())
+						.arg(ue.value()->getDirs())
+						.arg(ue.value()->getSize())
+						.arg(ue.value()->getModify())
+						.arg(ue.value()->getCreate())
+						.arg(ue.value()->getAccess());
 				}
 				// gid data
 				QStringList gidList;
-				QHashIterator<__gid_t, fileStatistics> ge(groupFileStatistics);
+				QHashIterator<__gid_t, FileStats*> ge(groupFileStatistics);
 				while (ge.hasNext()) {
 					ge.next();
 					gidList << QString("{\"gid\":%1,\"files\":%2,\"dirs\":%3,\"size\":%4,\"mtime\":%5,\"ctime\":%6,\"atime\":%7}")
 						.arg(ge.key())
-						.arg(ge.value().file_count)
-						.arg(ge.value().dir_count)
-						.arg(ge.value().size)
-						.arg(ge.value().last_modify)
-						.arg(ge.value().last_create)
-						.arg(ge.value().last_access);
+						.arg(ge.value()->getFiles())
+						.arg(ge.value()->getDirs())
+						.arg(ge.value()->getSize())
+						.arg(ge.value()->getModify())
+						.arg(ge.value()->getCreate())
+						.arg(ge.value()->getAccess());
 				}
 				// age data
 				QStringList yearDataList;
@@ -117,9 +119,9 @@ public slots:
 					error = QString(",\"error\":\"%1\"").arg(QString(errorString) );
 				}
 				// Scan stats
-				QString stats = QString("{\"elapsed\":%1,\"fps\":%2}").arg(scan_time.elapsed()).arg(((all.file_count+all.dir_count)/((float)scan_time.elapsed()/1000)), 0, 'f', 0);
+				QString stats = QString("{\"elapsed\":%1,\"fps\":%2}").arg(scan_time.elapsed()).arg(((all->getFiles()+all->getDirs())/((float)scan_time.elapsed()/1000)), 0, 'f', 0);
 				// all data
-				QString allData = QString("{\"files\":%1,\"dirs\":%2,\"size\":%3,\"mtime\":%4,\"ctime\":%5,\"atime\":%6}").arg(all.file_count).arg(all.dir_count).arg(all.size).arg(all.last_modify).arg(all.last_create).arg(all.last_access);
+				QString allData = QString("{\"files\":%1,\"dirs\":%2,\"size\":%3,\"mtime\":%4,\"ctime\":%5,\"atime\":%6}").arg(all->getFiles()).arg(all->getDirs()).arg(all->getSize()).arg(all->getModify()).arg(all->getCreate()).arg(all->getAccess());
 				// output
 				QTextStream out(stdout);
 				out << QString("{\"all\":%1,\"uids\":[%2],\"gids\":[%3],\"year\":{%4},\"stats\":%5%6}").arg(allData).arg(uidList.join(",")).arg(gidList.join(",")).arg(yearDataList.join(",")).arg(stats).arg(error)<< endl;
@@ -139,73 +141,33 @@ public slots:
 		int i = pSender->objectName().toInt(); // we know which thread this is from name
 		mutex.lock();	// lock for write
 		ScanDir* cthread = thread[i];
-		// all
-		all.file_count += cthread->getFiles();
-		all.dir_count += cthread->getDirs();
 		QList<QDir> newlist = cthread->getNewDirs();
 		if ( ! newlist.empty() ) {
 			for (int l = 0; l < newlist.size(); ++l)
 				dirs << newlist.at(l);
 		}
 		// collect thread user data and insert to global
-		QHashIterator<__uid_t, fileStatistics> e(cthread->userFileStatistics);
+		QHashIterator<__uid_t, FileStats*> e(cthread->userFileStatistics);
 		while (e.hasNext()) {
 			e.next();
 			__uid_t uid=e.key();
 			// init values
 			if ( ! userFileStatistics.contains(uid) ) {
-				userFileStatistics[uid].file_count = 0;
-				userFileStatistics[uid].dir_count = 0;
-				userFileStatistics[uid].size = 0;
-				userFileStatistics[uid].last_modify = 0;
-				userFileStatistics[uid].last_create = 0;
-				userFileStatistics[uid].last_access = 0;
+				userFileStatistics[uid] = new FileStats();
 			}
-			userFileStatistics[uid].file_count+=e.value().file_count;
-			userFileStatistics[uid].dir_count+=e.value().dir_count;
-			userFileStatistics[uid].size+=e.value().size;
-			if ( e.value().last_modify > userFileStatistics[uid].last_modify  )
-				userFileStatistics[uid].last_modify=e.value().last_modify;
-			if ( e.value().last_create > userFileStatistics[uid].last_create  )
-				userFileStatistics[uid].last_create=e.value().last_create;
-			if ( e.value().last_access > userFileStatistics[uid].last_access  )
-				userFileStatistics[uid].last_access=e.value().last_access;
-			// all timestamps
-			if ( e.value().last_modify > all.last_modify ) {
-				all.last_modify = e.value().last_modify;
-			}
-			if ( e.value().last_create > all.last_create ) {
-				all.last_create = e.value().last_create;
-			}
-			if ( e.value().last_access > all.last_access ) {
-				all.last_access = e.value().last_access;
-			}
-			// all size
-			all.size += e.value().size;
+			userFileStatistics[uid]->add(e.value());
+			all->add(e.value());
 		}
 		// collect thread group data and insert to global
-		QHashIterator<__gid_t, fileStatistics> g(cthread->groupFileStatistics);
+		QHashIterator<__gid_t, FileStats*> g(cthread->groupFileStatistics);
 		while (g.hasNext()) {
 			g.next();
 			__gid_t gid=g.key();
 			// init values
 			if ( ! groupFileStatistics.contains(gid) ) {
-				groupFileStatistics[gid].file_count = 0;
-				groupFileStatistics[gid].dir_count = 0;
-				groupFileStatistics[gid].size = 0;
-				groupFileStatistics[gid].last_modify = 0;
-				groupFileStatistics[gid].last_create = 0;
-				groupFileStatistics[gid].last_access = 0;
+				groupFileStatistics[gid]= new FileStats();
 			}
-			groupFileStatistics[gid].file_count+=g.value().file_count;
-			groupFileStatistics[gid].dir_count+=g.value().dir_count;
-			groupFileStatistics[gid].size+=g.value().size;			
-			if ( g.value().last_modify > groupFileStatistics[gid].last_modify  )
-				groupFileStatistics[gid].last_modify=g.value().last_modify;
-			if ( g.value().last_create > groupFileStatistics[gid].last_create  )
-				groupFileStatistics[gid].last_create=g.value().last_create;
-			if ( g.value().last_access > groupFileStatistics[gid].last_access  )
-				groupFileStatistics[gid].last_access=g.value().last_access;
+			groupFileStatistics[gid]->add(g.value());
 		}
 		// year age data collection
 		QHashIterator<uint, quint64> yfs(cthread->yearFileSizes);

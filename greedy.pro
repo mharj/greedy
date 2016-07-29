@@ -18,8 +18,10 @@ count(GIT_HEAD, 1) {
   DEFINES += GREEDY_REVISION=\\\"$$GIT_HEAD\\\"
 }
 
-SOURCES += main.cpp
-HEADERS += ScanDir.h ScanControl.h
+SOURCES += main.cpp \
+    filestats.cpp
+HEADERS += ScanDir.h ScanControl.h \
+    filestats.h
 CONFIG += qt warn_on release console
 CONFIG += c++11
 QMAKE_CXXFLAGS += -std=c++11
