@@ -34,10 +34,14 @@ int main(int argc, char **argv) {
 		qDebug() << "\t-threads"<<thread_count<<"";
 		return(-1);
 	}
-	char* path = argv[(argc-1)];
-	// test access to mount point
-	if ( access (path, R_OK) != 0 ) {
-		qCritical() << "Permisson denied from  " << path;
+	QDir directory = QDir( argv[(argc-1)] );
+	// test access to base dir
+	if ( ! directory.exists() ) {
+		qCritical() << "Can't find directory " << directory.absolutePath();
+		return (-2);
+	}
+	if ( ! directory.isReadable() ) {
+		qCritical() << "Permisson denied from " << directory.absolutePath();
 		return(-1);
 	}
 	// options
@@ -51,12 +55,8 @@ int main(int argc, char **argv) {
 			}
 		}
 	}
-	// TODO: discover real directory path with QDir
-	QString real_path = QString(path);
-	// clear last "/" out
-	real_path.remove(QRegExp("/$"));
 	// main
-	ScanControl main(QString(path),thread_count,real_path);
+	ScanControl main(directory,thread_count);
 	QObject::connect(&main,SIGNAL(nothingRuning()),&app,SLOT(quit()));
 	return(app.exec());
 }

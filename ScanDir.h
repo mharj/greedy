@@ -30,19 +30,16 @@ public:
 	bool data_read;
 	QHash<__uid_t, FileStats*> userFileStatistics;
 	QHash<__gid_t, FileStats*> groupFileStatistics;
-
 	QHash<uint,quint64> yearFileSizes;
 	bool permission;
 
 	ScanDir() {
 		data_read = true;
-		// current time
 		now = time(0);
 		seconds_in_year = (double)(now - QDateTime::currentDateTime().addYears(-1).toTime_t());
 		userFileStatistics.reserve(20000); // init size for 20k uids
 		groupFileStatistics.reserve(5000); // init size for 5k gids
 	}
-
 
 	void setDir(QDir dir) {
 		this->directory = dir;
@@ -60,8 +57,9 @@ public:
 		DIR *dir = opendir(cdir.constData());
 		while ((dp=readdir(dir)) != NULL) {
 			// common filename skip
-			if ( strcmp(dp->d_name,"..") == 0 || strcmp(dp->d_name,".") == 0 || strcmp(dp->d_name,".snapshot") == 0 ) 
+			if ( strcmp(dp->d_name,"..") == 0 || strcmp(dp->d_name,".") == 0 || strcmp(dp->d_name,".snapshot") == 0 ) {
 				continue;
+			}
 			char rfile[(strlen(cdir.constData())+strlen(dp->d_name)+2)]; // full path to file
 			sprintf(rfile,"%s/%s",cdir.constData(),dp->d_name);
 			struct stat st;
@@ -81,8 +79,9 @@ public:
 				} else {
 					yearFileSizes[year] += st.st_size;
 				}
-				if ( S_ISDIR(st.st_mode) )
+				if ( S_ISDIR(st.st_mode) ) {
 					directory_list	<< QDir(rfile);
+				}
 			}
 		}
 		closedir(dir);

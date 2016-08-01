@@ -12,45 +12,34 @@
 class ScanControl : public QObject {
 	Q_OBJECT
 public:
-	int r_exit;
-	ScanControl(QString base,int max,QString real_path) {
+	ScanControl(QDir directory,int thread_count) {
 		userFileStatistics.reserve(20000);
 		groupFileStatistics.reserve(5000);
-		scan_time.start();
-		r_exit=0;
-		this->real_path = real_path;
 		all = new FileStats();
-		all->setDirs(1);
+		all->setDirs(1); // add base dir
 		permission = true;
-		if ( access(base.toLatin1().data(), R_OK) != 0 ) {
-			return;
-		}
-		this->max = max;
-		dirs << QDir(base);
-		this->base = base;
-		// init threads and connect signals
-		for ( int i = 0 ; i < max ; i++ ) {
+		dirs << directory;
+		this->base = directory;
+		for ( int i = 0 ; i < thread_count ; i++ ) { // init threads and connect signals
 			thread.insert(i,new ScanDir());
-			thread[i]->setObjectName(QString("%1").arg(i)); // use thread index as name so we can eaily read those
 			connect(thread[i],SIGNAL(finished()),this,SLOT(finishedThread()));
 		}
 		connect(this,SIGNAL(dirChanged()),this,SLOT(checkThreads()));
+		scan_time.start();
 		emit dirChanged(); // initial start signal
 	}
 
 private:
 	QTime scan_time;
 	QList<ScanDir*> thread;
-	int max;
 	QList<QDir> dirs;
-	QString base;
+	QDir base;
 	FileStats* all;
 	QHash<__uid_t, FileStats*> userFileStatistics;
 	QHash<__gid_t, FileStats*> groupFileStatistics;
 	QMap<int,quint64> yearFileSizes;
 	bool permission;
 	QMutex mutex;
-	QString real_path;
 
 signals:
 	void dirChanged();
@@ -59,21 +48,28 @@ signals:
 public slots:
 	void checkThreads() {
 		if ( ! dirs.empty() ) {
-			for ( int i=0;i<max;i++) {
-				// not give thread if it's not yet read
-				if ( ! thread[i]->isRunning() && thread[i]->data_read ) {
-					thread[i]->setDir(dirs.takeFirst());
-					thread[i]->start();
-					i=max;
-					emit dirChanged();
+			bool change = false;
+			QListIterator<ScanDir*> t(thread);
+			while ( ! dirs.empty() && t.hasNext() ) {
+				ScanDir* c = t.next();
+				if ( ! c->isRunning() && c->data_read ) {
+					c->setDir(dirs.takeFirst());
+					c->start();
+					change = true;
 				}
+			}
+			if ( change == true ) {
+				emit dirChanged();
 			}
 		} else {
 			// test what we have something running
 			bool running=false;
-			for ( int i=0;i<max;i++) {
-				if ( ! thread.at(i)->data_read || thread.at(i)->isRunning() )
+			QListIterator<ScanDir*> t(thread);
+			while ( t.hasNext() ) {
+				ScanDir* c = t.next();
+				if ( ! c->data_read || c->isRunning() ) {
 					running=true;
+				}
 			}
 			if ( ! running ) { // not threads or data left
 				// uid data
@@ -115,7 +111,7 @@ public slots:
 				// Error string
 				QString error = QString("");
 				if (! permission ) {
-					QString errorString = QString("%1 have some permission problems, check root access").arg(real_path);
+					QString errorString = QString("%1 have some permission problems, check root access").arg(base.absolutePath());
 					error = QString(",\"error\":\"%1\"").arg(QString(errorString) );
 				}
 				// Scan stats
@@ -126,31 +122,29 @@ public slots:
 				QTextStream out(stdout);
 				out << QString("{\"all\":%1,\"uids\":[%2],\"gids\":[%3],\"year\":{%4},\"stats\":%5%6}").arg(allData).arg(uidList.join(",")).arg(gidList.join(",")).arg(yearDataList.join(",")).arg(stats).arg(error)<< endl;
 				// release threads
-				for ( int i=0 ; i<max ; i++) {
-					disconnect(thread[i],SIGNAL(finished()),this,SLOT(finishedThread()));
-					delete thread[i];
+				QListIterator<ScanDir*> t(thread);
+				while ( t.hasNext() ) {
+					ScanDir* c = t.next();
+					disconnect(c,SIGNAL(finished()),this,SLOT(finishedThread()));
+					delete c;
 				}
 				emit nothingRuning(); // we are done, signal to main app!
 			}
 		}
 	}
 
-	void finishedThread(){	
-		QObject *pSender;
-		pSender = this->sender();
-		int i = pSender->objectName().toInt(); // we know which thread this is from name
+	void finishedThread(){
+		__uid_t uid;
+		__gid_t gid;
+		uint years;
 		mutex.lock();	// lock for write
-		ScanDir* cthread = thread[i];
-		QList<QDir> newlist = cthread->getNewDirs();
-		if ( ! newlist.empty() ) {
-			for (int l = 0; l < newlist.size(); ++l)
-				dirs << newlist.at(l);
-		}
+		ScanDir* cthread = (ScanDir*)this->sender();
+		dirs.append( cthread->getNewDirs() );
 		// collect thread user data and insert to global
 		QHashIterator<__uid_t, FileStats*> e(cthread->userFileStatistics);
 		while (e.hasNext()) {
 			e.next();
-			__uid_t uid=e.key();
+			uid = e.key();
 			// init values
 			if ( ! userFileStatistics.contains(uid) ) {
 				userFileStatistics[uid] = new FileStats();
@@ -162,7 +156,7 @@ public slots:
 		QHashIterator<__gid_t, FileStats*> g(cthread->groupFileStatistics);
 		while (g.hasNext()) {
 			g.next();
-			__gid_t gid=g.key();
+			gid = g.key();
 			// init values
 			if ( ! groupFileStatistics.contains(gid) ) {
 				groupFileStatistics[gid]= new FileStats();
@@ -173,10 +167,11 @@ public slots:
 		QHashIterator<uint, quint64> yfs(cthread->yearFileSizes);
 		while ( yfs.hasNext() ) {
 			yfs.next();
-			if ( yearFileSizes.contains(yfs.key() ) ) {
-				yearFileSizes[yfs.key()] += yfs.value();
+			years = yfs.key();
+			if ( yearFileSizes.contains( years ) ) {
+				yearFileSizes[ years ] += yfs.value();
 			} else {
-				yearFileSizes.insert(yfs.key(),yfs.value());
+				yearFileSizes.insert( years ,yfs.value());
 			}
 		}
 
